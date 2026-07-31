@@ -1,7 +1,7 @@
 name: "🏷️ Generate SemVer Version"
 on:
   push:
-    branches: [main]
+    branches: [master]
   workflow_dispatch:
     # creates drop down for selecting version number to bump
     inputs:
@@ -25,7 +25,7 @@ concurrency:
 jobs:
   versioning-dev:
     name: "🔢 Versioning Dev"
-    if: github.ref != 'refs/heads/main'
+    if: github.ref != 'refs/heads/master'
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.calculate-version.outputs.version-string }}
@@ -80,7 +80,7 @@ jobs:
 
   versioning-prod:
     name: "🔢 Versioning Main"
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.calculate-version.outputs.version-string }}
