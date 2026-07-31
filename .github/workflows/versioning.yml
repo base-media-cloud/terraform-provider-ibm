@@ -1,0 +1,121 @@
+name: "🏷️ Generate SemVer Version"
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    # creates drop down for selecting version number to bump
+    inputs:
+      manual_bump:
+        description: 'Version number to increase'
+        required: true
+        type: choice
+        options:
+          - major
+          - minor
+          - patch
+        default: patch
+
+permissions:
+  contents: write
+
+concurrency:
+  group: "${{ github.ref }}-${{ github.workflow }}"
+  cancel-in-progress: true
+
+jobs:
+  versioning-dev:
+    name: "🔢 Versioning Dev"
+    if: github.ref != 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.calculate-version.outputs.version-string }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: "Get most recent develop tag"
+        id: get-tag
+        run: |
+          git fetch --tags
+          TAG=$(git tag --sort=-creatordate | grep -- '-dev$' | head -n 1)
+          SEMVER_TAG="${TAG%-dev}"
+          echo "tag=$SEMVER_TAG" >> $GITHUB_OUTPUT
+
+      - name: 'Get next dev version'
+        id: semvers
+        if: ${{ steps.get-tag.outputs.tag != '' }}
+        uses: "WyriHaximus/github-action-next-semvers@v1"
+        with:
+          version: ${{ steps.get-tag.outputs.tag }}
+
+
+      - name: 'Compare with main tag'
+        id: compare
+        run: |
+          TAG=$(git tag --sort=-creatordate | grep -v -- '-dev$' | head -n 1)
+          DEV_TAG=$(git tag --sort=-creatordate | grep -- '-dev$' | head -n 1)
+          TAG_NUM="${TAG#v}"
+          DEV_TAG_NUM="${DEV_TAG#v}"
+          DEV_TAG_NUM="${DEV_TAG_NUM%-dev}"
+        
+          if [ "$TAG_NUM" != "$DEV_TAG_NUM" ] && [ "$(printf '%s\n' "$TAG_NUM" "$DEV_TAG_NUM" | sort -V | tail -n1)" = "$TAG_NUM" ]; then
+            echo "Catching up to main"
+            echo "tag=$TAG-dev" >> $GITHUB_OUTPUT
+          else
+            echo "Incrementing dev version"
+            echo "tag=v${{ steps.semvers.outputs.patch }}-dev" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Echo
+        run: |
+          TAG="${{ steps.compare.outputs.tag }}"
+          
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
+
+
+  versioning-prod:
+    name: "🔢 Versioning Main"
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.calculate-version.outputs.version-string }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: "Get most recent main tag"
+        id: get-tag
+        run: |
+          git fetch --tags
+          TAG=$(git tag --sort=-creatordate | grep -v -- '-dev$' | head -n 1)
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: 'Get versions'
+        id: semvers
+        uses: "WyriHaximus/github-action-next-semvers@v1"
+        with:
+          version: ${{ steps.get-tag.outputs.tag }}
+      - name: Echo
+        run: |
+          echo "Calculated version: ${{ steps.semvers.outputs.patch }}"
+          
+          if [ "${{ github.event.inputs.manual_bump }}" = "minor" ]; then
+            VERSION="${{ steps.semvers.outputs.minor }}"
+          elif [ "${{ github.event.inputs.manual_bump }}" = "major" ]; then
+            VERSION="${{ steps.semvers.outputs.major }}"
+          else
+            VERSION="${{ steps.semvers.outputs.patch }}"
+          fi
+          
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git tag -a "v$VERSION" -m "Release v$VERSION-dev"
+          git push origin "v$VERSION"
+
