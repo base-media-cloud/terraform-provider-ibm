@@ -447,6 +447,21 @@ func ResourceIBMComputeBareMetal() *schema.Resource {
 	}
 }
 
+// getHardwareIDFromGlobalIdentifier attempts to retrieve the hardware ID for a given global identifier
+func getHardwareIDFromGlobalIdentifier(sess *session.Session, globalIdentifier string) (*int, error) {
+	service := services.GetAccountService(sess)
+	bms, err := service.Filter(
+		filter.Build(
+			filter.Path("hardware.globalIdentifier").Eq(globalIdentifier))).Mask("id").GetHardware()
+	if err != nil {
+		return nil, err
+	}
+	if len(bms) > 0 && bms[0].Id != nil {
+		return bms[0].Id, nil
+	}
+	return nil, nil
+}
+
 func getBareMetalOrderFromResourceData(d *schema.ResourceData, meta interface{}) (datatypes.Hardware, error) {
 	dc := datatypes.Location{
 		Name: sl.String(d.Get("datacenter").(string)),
@@ -614,59 +629,85 @@ func resourceIBMComputeBareMetalCreate(d *schema.ResourceData, meta interface{})
 	}
 
 	gID := *orderReceipt.OrderDetails.Hardware[0].GlobalIdentifier
-
-	log.Printf("[INFO] Bare Metal Server ID: %s", d.Id())
 	log.Printf("[INFO] Bare Metal Server global ID: %s", gID)
 
-	// wait for machine availability
-	bm, err := waitForBareMetalProvision(&hardware, d, meta, gID)
-	if err != nil {
-		return fmt.Errorf("[ERROR] Error waiting for bare metal server (%s) to become ready: %s", d.Id(), err)
-	}
+	// Set the global identifier in the resource
+	d.Set("global_identifier", gID)
 
-	id := *bm.(datatypes.Hardware).Id
-	d.SetId(fmt.Sprintf("%d", id))
+	// Try to get the hardware ID immediately without waiting for full provisioning
+	id, err := getHardwareIDFromGlobalIdentifier(sess, gID)
+	if err != nil {
+		log.Printf("[INFO] Error attempting to get hardware ID: %s", err)
+	}
+	if id != nil {
+		d.SetId(fmt.Sprintf("%d", *id))
+		log.Printf("[INFO] Bare Metal Server ID: %d", *id)
+	} else {
+		// Set ID to 0 as a null check when hardware ID is not yet available
+		d.SetId("0")
+		log.Printf("[INFO] Unable to get bare metal server ID immediately (order submitted with global ID: %s)", gID)
+	}
 
 	// Set tags
-	if _, ok := d.GetOk("tags"); ok {
-		err = setHardwareTags(id, d, meta)
-		if err != nil {
-			return err
+	if id != nil {
+		if _, ok := d.GetOk("tags"); ok {
+			err = setHardwareTags(*id, d, meta)
+			if err != nil {
+				return err
+			}
 		}
-	}
 
-	var storageIds []int
-	if storageIdsSet := d.Get("file_storage_ids").(*schema.Set); len(storageIdsSet.List()) > 0 {
-		storageIds = flex.ExpandIntList(storageIdsSet.List())
+		var storageIds []int
+		if storageIdsSet := d.Get("file_storage_ids").(*schema.Set); len(storageIdsSet.List()) > 0 {
+			storageIds = flex.ExpandIntList(storageIdsSet.List())
 
-	}
-	if storageIdsSet := d.Get("block_storage_ids").(*schema.Set); len(storageIdsSet.List()) > 0 {
-		storageIds = append(storageIds, flex.ExpandIntList(storageIdsSet.List())...)
-	}
-	if len(storageIds) > 0 {
-		err := addAccessToStorageList(hwService.Id(id), id, storageIds, meta)
-		if err != nil {
-			return err
 		}
-	}
-
-	// Set notes
-	if d.Get("notes").(string) != "" {
-		err = setHardwareNotes(id, d, meta)
-		if err != nil {
-			return err
+		if storageIdsSet := d.Get("block_storage_ids").(*schema.Set); len(storageIdsSet.List()) > 0 {
+			storageIds = append(storageIds, flex.ExpandIntList(storageIdsSet.List())...)
 		}
-	}
+		if len(storageIds) > 0 {
+			err := addAccessToStorageList(hwService.Id(*id), *id, storageIds, meta)
+			if err != nil {
+				return err
+			}
+		}
 
-	return resourceIBMComputeBareMetalRead(d, meta)
+		// Set notes
+		if d.Get("notes").(string) != "" {
+			err = setHardwareNotes(*id, d, meta)
+			if err != nil {
+				return err
+			}
+		}
+		return resourceIBMComputeBareMetalRead(d, meta)
+
+	}
+	return nil
 }
 
 func resourceIBMComputeBareMetalRead(d *schema.ResourceData, meta interface{}) error {
-	service := services.GetHardwareService(meta.(conns.ClientSession).SoftLayerSession())
+	sess := meta.(conns.ClientSession).SoftLayerSession()
+	service := services.GetHardwareService(sess)
 
 	id, err := strconv.Atoi(d.Id())
 	if err != nil {
 		return fmt.Errorf("[ERROR] Not  a valid ID, must be an integer: %s", err)
+	}
+
+	// If ID is 0, try to look up by global identifier
+	if id == 0 {
+		gID, ok := d.GetOk("global_identifier")
+		if !ok {
+			return fmt.Errorf("[ERROR] Resource not yet provisioned and no global_identifier available")
+		}
+		hwID, err := getHardwareIDFromGlobalIdentifier(sess, gID.(string))
+		if err != nil {
+			return fmt.Errorf("[ERROR] Error looking up hardware by global identifier: %s", err)
+		}
+		if hwID == nil {
+			return fmt.Errorf("[ERROR] Hardware with global identifier %s not yet available", gID)
+		}
+		id = *hwID
 	}
 
 	result, err := service.Id(id).Mask(
@@ -800,8 +841,25 @@ func resourceIBMComputeBareMetalRead(d *schema.ResourceData, meta interface{}) e
 }
 
 func resourceIBMComputeBareMetalUpdate(d *schema.ResourceData, meta interface{}) error {
+	sess := meta.(conns.ClientSession).SoftLayerSession()
 	id, _ := strconv.Atoi(d.Id())
-	service := services.GetHardwareService(meta.(conns.ClientSession).SoftLayerSession())
+	service := services.GetHardwareService(sess)
+
+	// If ID is 0, try to look up by global identifier
+	if id == 0 {
+		gID, ok := d.GetOk("global_identifier")
+		if !ok {
+			return fmt.Errorf("[ERROR] Cannot update: resource not provisioned and no global_identifier available")
+		}
+		hwID, err := getHardwareIDFromGlobalIdentifier(sess, gID.(string))
+		if err != nil {
+			return fmt.Errorf("[ERROR] Error looking up hardware by global identifier: %s", err)
+		}
+		if hwID == nil {
+			return fmt.Errorf("[ERROR] Hardware with global identifier %s not yet available for update", gID)
+		}
+		id = *hwID
+	}
 
 	if d.HasChange("tags") {
 		err := setHardwareTags(id, d, meta)
@@ -836,6 +894,22 @@ func deleteHardware(d dataRetriever, meta interface{}) error {
 		return fmt.Errorf("[ERROR] Not  a valid ID, must be an integer: %s", err)
 	}
 
+	// If ID is 0, try to look up by global identifier
+	if id == 0 {
+		gID, ok := d.GetOk("global_identifier")
+		if !ok {
+			return fmt.Errorf("[ERROR] Cannot delete: resource not provisioned and no global_identifier available")
+		}
+		hwID, err := getHardwareIDFromGlobalIdentifier(sess, gID.(string))
+		if err != nil {
+			return fmt.Errorf("[ERROR] Error looking up hardware by global identifier: %s", err)
+		}
+		if hwID == nil {
+			return fmt.Errorf("[ERROR] Hardware with global identifier %s not yet available for deletion", gID)
+		}
+		id = *hwID
+	}
+
 	_, err = waitForNoBareMetalActiveTransactions(id, meta)
 	if err != nil {
 		return fmt.Errorf("[ERROR] Error deleting bare metal server while waiting for zero active transactions: %s", err)
@@ -859,11 +933,25 @@ func deleteHardware(d dataRetriever, meta interface{}) error {
 }
 
 func resourceIBMComputeBareMetalExists(d *schema.ResourceData, meta interface{}) (bool, error) {
-	service := services.GetHardwareService(meta.(conns.ClientSession).SoftLayerSession())
+	sess := meta.(conns.ClientSession).SoftLayerSession()
+	service := services.GetHardwareService(sess)
 
 	id, err := strconv.Atoi(d.Id())
 	if err != nil {
 		return false, fmt.Errorf("[ERROR] Not  a valid ID, must be an integer: %s", err)
+	}
+
+	// If ID is 0, check if we can look it up by global identifier
+	if id == 0 {
+		gID, ok := d.GetOk("global_identifier")
+		if !ok {
+			return false, nil
+		}
+		hwID, err := getHardwareIDFromGlobalIdentifier(sess, gID.(string))
+		if err != nil {
+			return false, fmt.Errorf("[ERROR] Error looking up hardware by global identifier: %s", err)
+		}
+		return hwID != nil, nil
 	}
 
 	result, err := service.Id(id).GetObject()
