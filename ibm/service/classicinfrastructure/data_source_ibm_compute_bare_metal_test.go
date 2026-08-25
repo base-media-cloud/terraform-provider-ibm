@@ -22,7 +22,7 @@ func TestAccIBMComputeBareMetalDataSource_basic(t *testing.T) {
 		Providers: acc.TestAccProviders,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccCheckIBMComputeBareMetalDataSourceConfigBasic(hostname),
+				Config: testAccCheckIBMComputeBareMetalDataSourceConfigBasic(),
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttr(
 						configName, "hostname", hostname),
@@ -64,27 +64,20 @@ func TestAccIBMComputeBareMetalDataSource_basic(t *testing.T) {
 	})
 }
 
-func testAccCheckIBMComputeBareMetalDataSourceConfigBasic(hostname string) string {
+func testAccCheckIBMComputeBareMetalDataSourceConfigBasic() string {
 	return fmt.Sprintf(`
-		resource "ibm_compute_bare_metal" "terraform-acceptance-test-1" {
-			hostname               = "%s"
-			domain                 = "terraformuat.ibm.com"
-			os_reference_code      = "UBUNTU_16_64"
-			datacenter             = "dal01"
-			ipv6_enabled           = true
-			ipv6_static_enabled    = true
-			secondary_ip_count     = 4
-			network_speed          = 100
-			hourly_billing         = true
-			private_network_only   = false
-			user_metadata          = "{\"value\":\"newvalue\"}"
-			fixed_config_preset    = "S1270_32GB_1X1TBSATA_NORAID"
-			tags                   = ["collectd"]
-			notes                  = "baremetal notes"
-			}
-			data "ibm_compute_bare_metal" "tf-bm-ds-acc-test" {
-				hostname = "${ibm_compute_bare_metal.terraform-acceptance-test-1.hostname}"
-				domain = "${ibm_compute_bare_metal.terraform-acceptance-test-1.domain}"
-			}`, hostname)
+		resource "ibm_compute_bare_metal" "edge_transcoder" {
+		  hostname       = "base-poc-edge-001"
+		  domain         = "basemediacloud.com"
+		  os_reference_code = "OS_UBUNTU_24_04_LTS_64_BIT"
+		  datacenter     = "lon04"
+		
+		  hourly_billing       = true
+		  fixed_config_preset  = "1U_2174S_64GB_2X2TB_RAID_1"
+		
+		  network_speed = 1000
+		
+		  tcp_monitoring = false
+		}`)
 
 }
