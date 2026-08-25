@@ -4,6 +4,7 @@
 package classicinfrastructure
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"strconv"
@@ -26,12 +27,14 @@ import (
 
 func ResourceIBMComputeBareMetal() *schema.Resource {
 	return &schema.Resource{
-		Create:   resourceIBMComputeBareMetalCreate,
-		Read:     resourceIBMComputeBareMetalRead,
-		Update:   resourceIBMComputeBareMetalUpdate,
-		Delete:   resourceIBMComputeBareMetalDelete,
-		Exists:   resourceIBMComputeBareMetalExists,
-		Importer: &schema.ResourceImporter{},
+		Create: resourceIBMComputeBareMetalCreate,
+		Read:   resourceIBMComputeBareMetalRead,
+		Update: resourceIBMComputeBareMetalUpdate,
+		Delete: resourceIBMComputeBareMetalDelete,
+		Exists: resourceIBMComputeBareMetalExists,
+		Importer: &schema.ResourceImporter{
+			StateContext: resourceIBMComputeBareMetalImport,
+		},
 
 		Schema: map[string]*schema.Schema{
 
@@ -447,6 +450,26 @@ func ResourceIBMComputeBareMetal() *schema.Resource {
 	}
 }
 
+func resourceIBMComputeBareMetalImport(ctx context.Context, d *schema.ResourceData, meta interface{}) ([]*schema.ResourceData, error) {
+	id := d.Id()
+
+	if strings.HasPrefix(id, "gid:") {
+		gid := strings.TrimPrefix(id, "gid:")
+		d.Set("global_identifier", gid)
+		d.SetId("1")
+	} else {
+		d.SetId(id)
+	}
+
+	// Fetch and populate all fields from API
+	err := resourceIBMComputeBareMetalRead(d, meta)
+	if err != nil {
+		return nil, err
+	}
+
+	return []*schema.ResourceData{d}, nil
+}
+
 // getHardwareIDFromGlobalIdentifier attempts to retrieve the hardware ID for a given global identifier
 func getHardwareIDFromGlobalIdentifier(sess *session.Session, globalIdentifier string) (*int, error) {
 	service := services.GetAccountService(sess)
@@ -753,12 +776,12 @@ func resourceIBMComputeBareMetalRead(d *schema.ResourceData, meta interface{}) e
 
 	if result.PrimaryNetworkComponent.PrimarySubnet != nil {
 		d.Set("public_vlan_id", *result.PrimaryNetworkComponent.PrimarySubnet.NetworkVlan.Id)
-		d.Set("public_subnet", *result.PrimaryNetworkComponent.PrimarySubnet.Id)
+		//d.Set("public_subnet", *result.PrimaryNetworkComponent.PrimarySubnet.Id)
 	}
 
 	if result.PrimaryBackendNetworkComponent.PrimarySubnet != nil {
 		d.Set("private_vlan_id", *result.PrimaryBackendNetworkComponent.PrimarySubnet.NetworkVlan.Id)
-		d.Set("private_subnet", *result.PrimaryBackendNetworkComponent.PrimarySubnet.Id)
+		//d.Set("private_subnet", *result.PrimaryBackendNetworkComponent.PrimarySubnet.Id)
 	}
 
 	userData := result.UserData
@@ -904,6 +927,11 @@ func resourceIBMComputeBareMetalExists(d *schema.ResourceData, meta interface{})
 	id, err := strconv.Atoi(d.Id())
 	if err != nil {
 		return false, fmt.Errorf("[ERROR] Not  a valid ID, must be an integer: %s", err)
+	}
+
+	if id == 1 {
+		log.Printf("[DEBUG] Order has been placed but not yet provisioned")
+		return true, nil
 	}
 
 	result, err := service.Id(id).GetObject()
