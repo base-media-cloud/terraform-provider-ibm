@@ -729,6 +729,7 @@ func resourceIBMComputeBareMetalRead(d *schema.ResourceData, meta interface{}) e
 			return nil
 		}
 		id = *hwID
+		d.SetId(strconv.Itoa(id))
 	}
 
 	result, err := service.Id(id).Mask(
@@ -776,12 +777,12 @@ func resourceIBMComputeBareMetalRead(d *schema.ResourceData, meta interface{}) e
 
 	if result.PrimaryNetworkComponent.PrimarySubnet != nil {
 		d.Set("public_vlan_id", *result.PrimaryNetworkComponent.PrimarySubnet.NetworkVlan.Id)
-		//d.Set("public_subnet", *result.PrimaryNetworkComponent.PrimarySubnet.Id)
+		d.Set("public_subnet", strconv.Itoa(*result.PrimaryNetworkComponent.PrimarySubnet.Id))
 	}
 
 	if result.PrimaryBackendNetworkComponent.PrimarySubnet != nil {
 		d.Set("private_vlan_id", *result.PrimaryBackendNetworkComponent.PrimarySubnet.NetworkVlan.Id)
-		//d.Set("private_subnet", *result.PrimaryBackendNetworkComponent.PrimarySubnet.Id)
+		d.Set("private_subnet", strconv.Itoa(*result.PrimaryBackendNetworkComponent.PrimarySubnet.Id))
 	}
 
 	userData := result.UserData

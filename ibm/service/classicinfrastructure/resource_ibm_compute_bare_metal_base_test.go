@@ -10,6 +10,7 @@ import (
 	acc "github.com/IBM-Cloud/terraform-provider-ibm/ibm/acctest"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
 )
 
 func TestAccIBMComputeBareMetalDataSource_base(t *testing.T) {
@@ -25,13 +26,25 @@ func TestAccIBMComputeBareMetalDataSource_base(t *testing.T) {
 				ImportState:   true,
 				ImportStateId: "gid:93e5bfe6-5cc0-4ea2-a5f7-49237d28c13d",
 				Config:        testAccCheckIBMComputeBareMetalResourceConfigBase(),
-			},
-			{
-				Config: testAccCheckIBMComputeBareMetalResourceConfigBase(),
-				Check: resource.ComposeTestCheckFunc(
-					resource.TestCheckResourceAttr("ibm_compute_bare_metal.edge_transcoder", "global_identifier", "93e5bfe6-5cc0-4ea2-a5f7-49237d28c13d"),
-					resource.TestCheckResourceAttr("ibm_compute_bare_metal.edge_transcoder", "id", "1"),
-				),
+				ImportStateCheck: func(s []*terraform.InstanceState) error {
+					if len(s) != 1 {
+						return fmt.Errorf("expected 1 state, got %d", len(s))
+					}
+					state := s[0]
+					if state.Attributes["global_identifier"] != "93e5bfe6-5cc0-4ea2-a5f7-49237d28c13d" {
+						return fmt.Errorf("expected global_identifier '93e5bfe6-5cc0-4ea2-a5f7-49237d28c13d', got %q", state.Attributes["global_identifier"])
+					}
+					if state.Attributes["id"] != "1900048" {
+						return fmt.Errorf("expected id '1900048', got %q", state.Attributes["id"])
+					}
+					if state.Attributes["hostname"] != "base-poc-edge-001" {
+						return fmt.Errorf("expected hostname 'base-poc-edge-001', got %q", state.Attributes["hostname"])
+					}
+					if state.Attributes["domain"] != "basemediacloud.com" {
+						return fmt.Errorf("expected domain 'basemediacloud.com', got %q", state.Attributes["domain"])
+					}
+					return nil
+				},
 			},
 		},
 	})
