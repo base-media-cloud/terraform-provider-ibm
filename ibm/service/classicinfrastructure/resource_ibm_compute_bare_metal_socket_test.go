@@ -42,10 +42,6 @@ func testAccCheckIBMComputeBareMetalResourceConfigSocket() string {
 		
 		  private_network_only = false
 		  redundant_power_supply = false
-		  tags = [
-			"edge-transcoder",
-			"mediahub",
-		  ]
 		
 		  # Monitoring
 		  tcp_monitoring = false
