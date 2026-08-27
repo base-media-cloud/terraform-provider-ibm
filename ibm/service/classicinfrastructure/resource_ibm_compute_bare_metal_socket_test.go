@@ -38,7 +38,7 @@ func testAccCheckIBMComputeBareMetalResourceConfigSocket() string {
 		  network_speed          = 1000  # 1 Gbps
 		  public_bandwidth       = 500
 		  post_install_script_uri = "https://raw.githubusercontent.com/base-media-cloud/base-ibm-scripts/main/bare-metal-init.sh"
-		  hourly_billing         = false
+		  hourly_billing         = true
 		
 		  private_network_only = false
 		  redundant_power_supply = false
