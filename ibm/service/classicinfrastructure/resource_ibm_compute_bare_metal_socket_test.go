@@ -29,7 +29,7 @@ func TestAccIBMComputeBareMetalDataSource_socket(t *testing.T) {
 
 func testAccCheckIBMComputeBareMetalResourceConfigSocket() string {
 	return fmt.Sprintf(`
-		resource "ibm_compute_bare_metal" "edge_transcoder" {
+		resource "ibm_compute_bare_metal" "socket_test" {
 		  fixed_config_preset    = "1U_2174S_64GB_2X4TB_RAID_1"
 		  os_key_name            = "OS_UBUNTU_24_04_LTS_NOBLE_NUMBAT_64_BIT"
 		  hostname               = "base-socket-test-001"
